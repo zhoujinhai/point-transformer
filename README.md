@@ -88,6 +88,7 @@ python tool/inference_support.py
 ```
 
 - result
+```txt  
 Val result: mIoU/mAcc/allAcc 0.7599/0.9011/0.9000.
 Class_0 Result: iou/accuracy 0.8849/0.9044.
 Class_1 Result: iou/accuracy 0.6066/0.9143.
@@ -96,3 +97,4 @@ Class_3 Result: iou/accuracy 0.7586/0.9022.
 <<<<<<<<<<<<<<<<< End Evaluation <<<<<<<<<<<<<<<<<
 Saving checkpoint to: exp/support/pt1_repro/model/model_last.pth
 Best validation mIoU updated to: 0.7599
+```
