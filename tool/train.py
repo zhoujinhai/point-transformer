@@ -19,6 +19,7 @@ from tensorboardX import SummaryWriter
 
 from util import config
 from util.s3dis import S3DIS
+from util.SupportDataLoader import SemSegSupportDataset
 from util.common_util import AverageMeter, intersectionAndUnionGPU, find_free_port
 from util.data_util import collate_fn
 from util import transform as t
@@ -79,6 +80,9 @@ def main():
     if args.data_name == 's3dis':
         S3DIS(split='train', data_root=args.data_root, test_area=args.test_area)
         S3DIS(split='val', data_root=args.data_root, test_area=args.test_area)
+    elif args.data_name == 'support':
+        SemSegSupportDataset(split='train', root=args.data_root, npoints=args.npoints, n_class=args.classes, f_cols=args.fea_dim)
+        SemSegSupportDataset(split='val', root=args.data_root, npoints=args.npoints, n_class=args.classes, f_cols=args.fea_dim)
     else:
         raise NotImplementedError()
     if args.multiprocessing_distributed:
@@ -163,7 +167,15 @@ def main_worker(gpu, ngpus_per_node, argss):
                 logger.info("=> no checkpoint found at '{}'".format(args.resume))
 
     train_transform = t.Compose([t.RandomScale([0.9, 1.1]), t.ChromaticAutoContrast(), t.ChromaticTranslation(), t.ChromaticJitter(), t.HueSaturationTranslation()])
-    train_data = S3DIS(split='train', data_root=args.data_root, test_area=args.test_area, voxel_size=args.voxel_size, voxel_max=args.voxel_max, transform=train_transform, shuffle_index=True, loop=args.loop)
+    if args.data_name == 's3dis':
+        train_data = S3DIS(split='train', data_root=args.data_root, test_area=args.test_area, voxel_size=args.voxel_size, voxel_max=args.voxel_max, transform=train_transform, shuffle_index=True, loop=args.loop)
+    elif args.data_name == 'support':
+        train_data = SemSegSupportDataset(split='train', root=args.data_root, npoints=args.npoints, n_class=args.classes, f_cols=args.fea_dim) 
+        weights = torch.Tensor(train_data.label_weights).cuda()
+        criterion = nn.CrossEntropyLoss(weight=weights, ignore_index=args.ignore_label).cuda()
+    else:
+        raise NotImplementedError()
+    
     if main_process():
             logger.info("train_data samples: '{}'".format(len(train_data)))
     if args.distributed:
@@ -171,11 +183,16 @@ def main_worker(gpu, ngpus_per_node, argss):
     else:
         train_sampler = None
     train_loader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size, shuffle=(train_sampler is None), num_workers=args.workers, pin_memory=True, sampler=train_sampler, drop_last=True, collate_fn=collate_fn)
-
+   
     val_loader = None
     if args.evaluate:
         val_transform = None
-        val_data = S3DIS(split='val', data_root=args.data_root, test_area=args.test_area, voxel_size=args.voxel_size, voxel_max=800000, transform=val_transform)
+        if args.data_name == 's3dis':
+            val_data = S3DIS(split='val', data_root=args.data_root, test_area=args.test_area, voxel_size=args.voxel_size, voxel_max=800000, transform=val_transform)
+        elif args.data_name == 'support':
+            val_data = SemSegSupportDataset(split='val', root=args.data_root, npoints=args.npoints, n_class=args.classes, f_cols=args.fea_dim) 
+        else:
+            raise NotImplementedError()
         if args.distributed:
             val_sampler = torch.utils.data.distributed.DistributedSampler(val_data)
         else:
@@ -183,6 +200,7 @@ def main_worker(gpu, ngpus_per_node, argss):
         val_loader = torch.utils.data.DataLoader(val_data, batch_size=args.batch_size_val, shuffle=False, num_workers=args.workers, pin_memory=True, sampler=val_sampler, collate_fn=collate_fn)
 
     for epoch in range(args.start_epoch, args.epochs):
+        logger.info('====>Epoch: {:d}'.format(epoch))
         if args.distributed:
             train_sampler.set_epoch(epoch)
         loss_train, mIoU_train, mAcc_train, allAcc_train = train(train_loader, model, criterion, optimizer, epoch)
