@@ -98,3 +98,12 @@ Class_3 Result: iou/accuracy 0.7586/0.9022.
 Saving checkpoint to: exp/support/pt1_repro/model/model_last.pth
 Best validation mIoU updated to: 0.7599
 ```
+
+## V3
+- env
+```bash
+conda install addict timm -c conda-forge -y
+conda install pytorch-scatter -c pyg -y
+pip install spconv-cu113
+```
+  
