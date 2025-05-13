@@ -72,3 +72,27 @@ If you use this code, please cite [Point Transformer](https://arxiv.org/abs/2012
 ## Acknowledgement
 The code is from the first author of [Point Transformer](https://arxiv.org/abs/2012.09164).
 We also refer [PAConv repository](https://github.com/CVMI-Lab/PAConv).
+
+
+## Support seg
+config is config/support/support_pt1_repro.yaml
+
+- train
+```bash
+sh tool/train.sh support pt1_repro
+```
+
+- val
+```bash
+python tool/inference_support.py
+```
+
+- result
+Val result: mIoU/mAcc/allAcc 0.7599/0.9011/0.9000.
+Class_0 Result: iou/accuracy 0.8849/0.9044.
+Class_1 Result: iou/accuracy 0.6066/0.9143.
+Class_2 Result: iou/accuracy 0.7893/0.8833.
+Class_3 Result: iou/accuracy 0.7586/0.9022.
+<<<<<<<<<<<<<<<<< End Evaluation <<<<<<<<<<<<<<<<<
+Saving checkpoint to: exp/support/pt1_repro/model/model_last.pth
+Best validation mIoU updated to: 0.7599
