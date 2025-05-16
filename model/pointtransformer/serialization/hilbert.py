@@ -88,7 +88,7 @@ def gray2binary(gray, axis=-1):
     return gray
 
 
-def encode(locs, num_dims, num_bits):
+def encode_bak(locs, num_dims, num_bits):
     """Decode an array of locations in a hypercube into a Hilbert integer.
 
     This is a vectorized-ish version of the Hilbert curve implementation by John
@@ -115,8 +115,8 @@ def encode(locs, num_dims, num_bits):
     """
 
     # Keep around the original shape for later.
-    orig_shape = locs.shape
-    bitpack_mask = 1 << torch.arange(0, 8).to(locs.device)
+    orig_shape = locs.shape 
+    bitpack_mask = torch.tensor(1, device=locs.device) << torch.arange(0, 8).to(locs.device)  # bitpack_mask = 1 << torch.arange(0, 8).to(locs.device)
     bitpack_mask_rev = bitpack_mask.flip(-1)
 
     if orig_shape[-1] != num_dims:
@@ -140,7 +140,7 @@ def encode(locs, num_dims, num_bits):
 
     # Treat the location integers as 64-bit unsigned and then split them up into
     # a sequence of uint8s.  Preserve the association by dimension.
-    locs_uint8 = locs.long().view(torch.uint8).reshape((-1, num_dims, 8)).flip(-1)
+    locs_uint8 = locs.long().to(torch.uint8).reshape((-1, num_dims, 8)).flip(-1) # locs_uint8 = locs.long().view(torch.uint8).reshape((-1, num_dims, 8)).flip(-1) 
 
     # Now turn these into bits and truncate to num_bits.
     gray = (
@@ -192,9 +192,67 @@ def encode(locs, num_dims, num_bits):
         .type(torch.uint8)
     )
 
-    # Convert uint8s into uint64s.
-    hh_uint64 = hh_uint8.view(torch.int64).squeeze()
+    # Convert uint8s into uint64s. 
+    hh_uint64 = hh_uint8.to(torch.int64).squeeze()  # hh_uint64 = hh_uint8.view(torch.int64).squeeze() 
 
+    return hh_uint64
+
+
+def encode(locs, num_dims, num_bits):
+    """Decode an array of locations in a hypercube into a Hilbert integer."""
+    orig_shape = locs.shape
+    bitpack_mask = torch.tensor(1, device=locs.device) << torch.arange(0, 8).to(locs.device)
+    bitpack_mask_rev = bitpack_mask.flip(-1)
+
+    if orig_shape[-1] != num_dims:
+        raise ValueError(f"Expected last dimension size {num_dims}, got {orig_shape[-1]}")
+
+    if num_dims * num_bits > 63:
+        raise ValueError(f"Total bits {num_dims * num_bits} exceeds 63")
+
+    # 淇姝ラ 1锛氱‘淇?locs_uint8 鐨勭淮搴︽纭?
+    print("locs shape: ---------", locs.shape)
+    locs_uint8 = locs.long().to(torch.uint8)
+    print("locs_uint8 shape: ---------", locs_uint8.shape)
+    expected_elements = locs_uint8.numel() // (num_dims * 8)
+    locs_uint8 = locs_uint8.reshape(expected_elements, num_dims, 8).flip(-1)
+
+    # 鐢熸垚 gray 寮犻噺骞剁粺涓€缁村害
+    gray = (
+        locs_uint8.unsqueeze(-1)
+        .bitwise_and(bitpack_mask_rev)
+        .ne(0)
+        .byte()
+        .flatten(-2, -1)[..., -num_bits:]
+    )
+    gray = gray.reshape(-1, num_dims, num_bits)  # 鏄庣‘缁村害
+
+    # 淇姝ラ 3锛氬惊鐜鐞嗕腑鐨勭淮搴﹀吋瀹?
+    for bit in range(num_bits):
+        for dim in range(num_dims):
+            mask = gray[:, dim, bit]
+            gray[:, 0, bit + 1 :] = torch.logical_xor(gray[:, 0, bit + 1 :], mask[:, None])
+            to_flip = torch.logical_and(
+                ~mask[:, None].expand(-1, gray.shape[2] - bit - 1),
+                gray[:, 0, bit + 1 :] ^ gray[:, dim, bit + 1 :]
+            )
+            gray[:, dim, bit + 1 :] ^= to_flip
+            gray[:, 0, bit + 1 :] ^= to_flip
+
+    # 淇姝ラ 4锛氭渶缁堢淮搴﹀榻?
+    gray = gray.swapaxes(1, 2).reshape(-1, num_bits * num_dims)
+    hh_bin = gray2binary(gray)
+    padded = torch.nn.functional.pad(hh_bin, (64 - num_bits * num_dims, 0), "constant", 0)
+
+    hh_uint8 = (
+        (padded.flip(-1).reshape(-1, 8, 8) * bitpack_mask)
+        .sum(2)
+        .squeeze()
+        .type(torch.uint8)
+    )
+    print("hh_uint8************", hh_uint8.shape)
+    hh_uint64 = hh_uint8.to(torch.int64).flatten()
+    print("hh_uint64************", hh_uint64.shape)
     return hh_uint64
 
 
