@@ -233,6 +233,7 @@ class PointSequential(PointModule):
             # Spconv module
             elif spconv.modules.is_spconv_module(module):
                 if isinstance(input, Point):
+                    print("***********", input.sparse_conv_feat)
                     input.sparse_conv_feat = module(input.sparse_conv_feat)
                     input.feat = input.sparse_conv_feat.features
                 else:
@@ -434,7 +435,7 @@ class SerializedAttention(PointModule):
             point[pad_key] = pad
             point[unpad_key] = unpad
             point[cu_seqlens_key] = nn.functional.pad(
-                torch.concat(cu_seqlens), (0, 1), value=_offset_pad[-1]
+                torch.cat(cu_seqlens), (0, 1), value=_offset_pad[-1]
             )
         return point[pad_key], point[unpad_key], point[cu_seqlens_key]
 
@@ -788,6 +789,7 @@ class PointTransformerV3(PointModule):
     def __init__(
         self,
         in_channels=6,
+        n_cls = 4,
         order=("z", "z-trans", "hilbert", "hilbert-trans"),
         stride=(2, 2, 2, 2),
         enc_depths=(2, 2, 2, 6, 2),
@@ -964,7 +966,13 @@ class PointTransformerV3(PointModule):
                     )
                 self.dec.add(module=dec, name=f"dec{s}")
 
-    def forward(self, data_dict):
+        self.seg_head = nn.Sequential(
+            nn.Linear(dec_channels[0], dec_channels[0]), 
+            nn.BatchNorm1d(dec_channels[0]), 
+            nn.ReLU(inplace=True), 
+            nn.Linear(dec_channels[0], n_cls)
+            )
+    def forward(self, pxo, grid_size = 0.05):
         """
         A data_dict is a dictionary containing properties of a batched point cloud.
         It should contain the following properties for PTv3:
@@ -972,12 +980,35 @@ class PointTransformerV3(PointModule):
         2. "grid_coord": discrete coordinate after grid sampling (voxelization) or "coord" + "grid_size"
         3. "offset" or "batch": https://github.com/Pointcept/Pointcept?tab=readme-ov-file#offset
         """
+        p0, x0, o0 = pxo  # (n, 3), (n, c), (b)
+        data_dict = {}
+        data_dict["feat"] = x0
+        data_dict["coord"] = p0
+        data_dict["offset"] = o0
+        data_dict["grid_size"] = grid_size
         point = Point(data_dict)
+        print("point: ", point)
         point.serialization(order=self.order, shuffle_orders=self.shuffle_orders)
+        print("point serialization: ", point)
         point.sparsify()
-
+        print("point sparsify: ", point)
         point = self.embedding(point)
         point = self.enc(point)
         if not self.cls_mode:
             point = self.dec(point)
-        return point
+        x = self.seg_head(point)
+        return x
+    
+
+if __name__ == "__main__": 
+    import sys
+    import os
+    sys.path.append("/home/heygears/jinhai_zhou/learn/point-transformer/")
+    sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+    coord, feat, label =  torch.rand(80000, 3).to("cuda"), torch.rand(80000, 9).to("cuda"), torch.randint(0, 4, (80000,)).to("cuda")
+    offset = torch.tensor([40000, 80000]).to("cuda")
+    
+    model = PointTransformerV3(in_channels=9, n_cls=4)
+    model.to("cuda")
+    out = model((coord, feat, offset))
+    print(out)
