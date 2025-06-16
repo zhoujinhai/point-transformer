@@ -24,6 +24,17 @@ class FurthestSampling(Function):
         del tmp
         return idx
 
+    # @staticmethod
+    # def symbolic(g, xyz, offset, new_offset):
+    #     return g.op("FurthestSampling", xyz, offset, new_offset)
+    
+    @staticmethod
+    def symbolic(g, xyz, offset, new_offset):
+        return g.op("ai.onnx.contrib::FurthestSampling", xyz, offset, new_offset,
+                    domain_s="ai.onnx.contrib",
+                    opset_i=12  # 显式指定版本
+            )
+
 furthestsampling = FurthestSampling.apply
 
 
@@ -41,6 +52,22 @@ class KNNQuery(Function):
         dist2 = torch.cuda.FloatTensor(m, nsample).zero_()
         pointops_cuda.knnquery_cuda(m, nsample, xyz, new_xyz, offset, new_offset, idx, dist2)
         return idx, torch.sqrt(dist2)
+
+    # @staticmethod
+    # def symbolic(g, nsample, xyz, new_xyz, offset, new_offset):
+    #     nsample_tensor = g.op(
+    #         "Constant", 
+    #         value_t=torch.tensor([nsample], dtype=torch.int32)  
+    #     )
+    #     return g.op("KNNQuery", nsample_tensor, xyz, new_xyz, offset, new_offset), g.op("KNNQuery", nsample_tensor, xyz, new_xyz, offset, new_offset)
+    
+    @staticmethod
+    def symbolic(g, nsample, xyz, new_xyz, offset, new_offset):
+        nsample_tensor = g.op(
+            "Constant", 
+            value_t=torch.tensor([nsample], dtype=torch.int32)  
+        )
+        return g.op("ai.onnx.contrib::KNNQuery", nsample_tensor, xyz, new_xyz, offset, new_offset), g.op("ai.onnx.contrib::KNNQuery", nsample_tensor, xyz, new_xyz, offset, new_offset)
 
 knnquery = KNNQuery.apply
 
