@@ -218,7 +218,9 @@ void knnquery_cpu_impl(
             // 存储结果
             for (int i = 0; i < nsample; ++i) {
                 idx[pt_idx * nsample + i] = best_idx[i];
-                dist2[pt_idx * nsample + i] = best_dist[i];
+                if (dist2) {
+                    dist2[pt_idx * nsample + i] = best_dist[i];
+                }
             }
         }
     }
@@ -322,6 +324,13 @@ void KNNQueryKernel::Compute(OrtKernelContext * context) {
     Ort::UnownedValue idx_output = ctx.GetOutput(0, idx_shape);  
     int32_t* idx_ptr = idx_output.GetTensorMutableData<int>();
 
+    bool output_dist = ctx.GetOutputCount() > 1;
+    float* dist_ptr = nullptr;
+    if (output_dist) {
+        Ort::UnownedValue dist_output = ctx.GetOutput(1, idx_shape);
+        dist_ptr = dist_output.GetTensorMutableData<float>();
+    }
+
     // 调用核心算法实现
     knnquery_cpu_impl(
         batch_size,
@@ -330,7 +339,8 @@ void KNNQueryKernel::Compute(OrtKernelContext * context) {
         new_xyz,
         offset_data,
         new_offset_data,
-        idx_ptr
+        idx_ptr,
+	output_dist ? dist_ptr : nullptr  
     );
 }
 
