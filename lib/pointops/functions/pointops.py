@@ -53,21 +53,18 @@ class KNNQuery(Function):
         pointops_cuda.knnquery_cuda(m, nsample, xyz, new_xyz, offset, new_offset, idx, dist2)
         return idx, torch.sqrt(dist2)
 
-    # @staticmethod
-    # def symbolic(g, nsample, xyz, new_xyz, offset, new_offset):
-    #     nsample_tensor = g.op(
-    #         "Constant", 
-    #         value_t=torch.tensor([nsample], dtype=torch.int32)  
-    #     )
-    #     return g.op("KNNQuery", nsample_tensor, xyz, new_xyz, offset, new_offset), g.op("KNNQuery", nsample_tensor, xyz, new_xyz, offset, new_offset)
-    
-    @staticmethod
+     @staticmethod
     def symbolic(g, nsample, xyz, new_xyz, offset, new_offset):
         nsample_tensor = g.op(
             "Constant", 
             value_t=torch.tensor([nsample], dtype=torch.int32)  
         )
-        return g.op("ai.onnx.contrib::KNNQuery", nsample_tensor, xyz, new_xyz, offset, new_offset), g.op("ai.onnx.contrib::KNNQuery", nsample_tensor, xyz, new_xyz, offset, new_offset)
+        knn_node = g.op(
+            "ai.onnx.contrib::KNNQuery", 
+            nsample_tensor, xyz, new_xyz, offset, new_offset,
+            outputs=2   
+        )
+        return knn_node[0], knn_node[1]
 
 knnquery = KNNQuery.apply
 
