@@ -170,7 +170,7 @@ void knnquery_cpu_impl(
     const int* offset,
     const int* new_offset,
     int* idx
-    //float* dist2
+    float* dist2
 ) {
     for (int bid = 0; bid < b; ++bid) {
         // 计算当前批次的点云范围
@@ -218,7 +218,7 @@ void knnquery_cpu_impl(
             // 存储结果
             for (int i = 0; i < nsample; ++i) {
                 idx[pt_idx * nsample + i] = best_idx[i];
-                //dist2[pt_idx * nsample + i] = best_dist[i];
+                dist2[pt_idx * nsample + i] = best_dist[i];
             }
         }
     }
@@ -271,8 +271,11 @@ struct KNNQueryKernelOptionalOnnx : Ort::CustomOpBase<KNNQueryKernelOptionalOnnx
 		return OrtCustomOpInputOutputCharacteristic::INPUT_OUTPUT_REQUIRED;
 	}
 
-	size_t GetOutputTypeCount() const { return 1; };
-	ONNXTensorElementDataType GetOutputType(size_t /*index*/) const {
+	size_t GetOutputTypeCount() const { return 2; };
+	ONNXTensorElementDataType GetOutputType(size_t index) const {
+        if (index == 1) {
+            return ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+        }
 		return ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32;
 	};
 	OrtCustomOpInputOutputCharacteristic GetOutputCharacteristic(size_t /*index*/) const {
