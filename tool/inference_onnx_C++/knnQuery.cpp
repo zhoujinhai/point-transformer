@@ -226,7 +226,53 @@ void knnquery_cpu_impl(
     }
 }
 
+void knnquery_cpu_impl2(
+    int b,
+    int nsample,
+    const float* xyz,
+    const float* new_xyz,
+    const int* offset,
+    const int* new_offset,
+    int* idx,
+    float* dist2
+) {
+    for (int bid = 0; bid < b; ++bid) {
+        // 点云范围计算（与原函数一致）
+        int start_n = (bid == 0) ? 0 : offset[bid - 1];
+        int end_n = offset[bid];
+        int start_m = (bid == 0) ? 0 : new_offset[bid - 1];
+        int end_m = new_offset[bid];
 
+        // 构建当前批次的点云数据（转换为 OpenCV Mat）
+        int num_points = end_n - start_n; 
+        cv::Mat pointCloud(end_n - start_n, 3, CV_32F, (void*)(xyz + start_n * 3));  
+
+        // 创建 KDTree 索引 
+        cv::flann::KDTreeIndexParams indexParams(16); 
+        cv::flann::Index kdtree(pointCloud, indexParams);
+        cv::flann::SearchParams params(64);   // 调大后精度会变高, 相应速度会变慢
+
+        // 处理每个查询点
+        for (int pt_idx = start_m; pt_idx < end_m; ++pt_idx) {
+            cv::Mat query(1, 3, CV_32F);
+            query.at<float>(0) = new_xyz[pt_idx * 3];
+            query.at<float>(1) = new_xyz[pt_idx * 3 + 1];
+            query.at<float>(2) = new_xyz[pt_idx * 3 + 2];
+
+            // 执行 KNN 搜索 
+            cv::Mat indices, dists;
+            kdtree.knnSearch(query, indices, dists, nsample, params);
+
+            // 存储结果
+            for (int i = 0; i < nsample; ++i) {
+                idx[pt_idx * nsample + i] = start_n + indices.at<int>(0, i); // 索引需偏移
+                if (dist2) {
+                    dist2[pt_idx * nsample + i] = dists.at<float>(0, i);
+                }
+            }
+        }
+    }
+}
 
 struct KNNQueryKernel {
     KNNQueryKernel(const OrtApi& ort_api, const OrtKernelInfo* /*info*/) : ort_(ort_api) {
@@ -331,8 +377,18 @@ void KNNQueryKernel::Compute(OrtKernelContext * context) {
         dist_ptr = dist_output.GetTensorMutableData<float>();
     }
 
-    // 调用核心算法实现
-    knnquery_cpu_impl(
+    //// 调用核心算法实现
+    //knnquery_cpu_impl(
+    //    batch_size,
+    //    nsample,
+    //    xyz_data,
+    //    new_xyz,
+    //    offset_data,
+    //    new_offset_data,
+    //    idx_ptr,
+    //    output_dist ? dist_ptr : nullptr
+    //);
+    knnquery_cpu_impl2(
         batch_size,
         nsample,
         xyz_data,
@@ -340,7 +396,7 @@ void KNNQueryKernel::Compute(OrtKernelContext * context) {
         offset_data,
         new_offset_data,
         idx_ptr,
-	output_dist ? dist_ptr : nullptr  
+        output_dist ? dist_ptr : nullptr
     );
 }
 
