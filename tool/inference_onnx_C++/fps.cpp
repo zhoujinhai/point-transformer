@@ -8,7 +8,54 @@
 
 #include "onnxruntime_cxx_api.h"
 
+/* data deal
+core::Vector3 mean;
+float x = 0, y = 0, z = 0;
+for (int i = 0; i < numPts; i++) {
+	x += points[i][0];
+	y += points[i][1];
+	z += points[i][2];
+}
+x /= float(numPts);
+y /= float(numPts);
+z /= float(numPts);
+float maxSqrt = std::numeric_limits<float>::min();
+for (int i = 0; i < numPts; i++) {
+	points[i][0] -= x;
+	points[i][1] -= y;
+	points[i][2] -= z;
+	float sum = std::sqrt(points[i][0] * points[i][0] + points[i][1] * points[i][1] + points[i][2] * points[i][2]);;
+	if (sum > maxSqrt)
+		maxSqrt = sum;
+}
 
+float x_min = std::numeric_limits<float>::lowest();
+float y_min = std::numeric_limits<float>::lowest();
+float z_min = std::numeric_limits<float>::lowest();
+for (size_t i = 0; i < numPts; ++i) {
+	points[i][0] /= maxSqrt;
+	points[i][1] /= maxSqrt;
+	points[i][2] /= maxSqrt;
+	if (points[i][0] < x_min) {
+		x_min = points[i][0];
+	}
+	if (points[i][0] < x_min) {
+		y_min = points[i][1];
+	}
+	if (points[i][0] < x_min) {
+		z_min = points[i][2];
+	}
+}
+for (size_t i = 0; i < numPts; ++i) {
+	points[i][0] -= x_min;
+	points[i][1] -= y_min;
+	points[i][2] -= z_min;
+	for (size_t c = 0; c < channel; c++) {
+		input0data[channel * i + c] = static_cast<float>(points[i][c]); // 填充数据
+	}
+}
+
+*/
 bool ReadData(const std::string filename, std::vector<std::vector<float>>& data, const int COLS_PER_ROW = 12)
 { 
     // 1. 打开文件并检查状态
