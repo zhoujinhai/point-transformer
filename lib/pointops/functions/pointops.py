@@ -201,6 +201,27 @@ def interpolation(xyz, new_xyz, feat, offset, new_offset, k=3):
         new_feat += feat[idx[:, i].long(), :] * weight[:, i].unsqueeze(-1)
     return new_feat
 
+def interpolation_export(xyz, new_xyz, feat, offset, new_offset, k=3):
+    """
+    input: xyz: (m, 3), new_xyz: (n, 3), feat: (m, c), offset: (b), new_offset: (b)
+    output: (n, c)
+    """
+    assert xyz.is_contiguous() and new_xyz.is_contiguous() and feat.is_contiguous()
+    idx, dist = knnquery(k, xyz, new_xyz, offset, new_offset) # (n, 3), (n, 3)
+    # dist_recip = 1.0 / (dist + 1e-8) # (n, 3)
+    eps = torch.tensor(1e-8, device=dist.device, dtype=dist.dtype)
+    dist_recip = 1.0 / (dist + eps) 
+    # dist_recip = 1.0 / (dist + 1e-8) 
+    norm = torch.sum(dist_recip, dim=1, keepdim=True)
+    weight = dist_recip / norm # (n, 3) 
+    # new_feat = torch.cuda.FloatTensor(new_xyz.shape[0], feat.shape[1]).zero_() 
+    # for i in range(k):
+    #     new_feat += feat[idx[:, i].long(), :] * weight[:, i].unsqueeze(-1)
+    idx_long = idx.long()  # 确保整型索引
+    gathered_feat = feat[idx_long]  # [n, k, c]  直接索引替代循环
+    weighted_feat = gathered_feat * weight.unsqueeze(-1)  # [n, k, c]
+    new_feat = torch.sum(weighted_feat, dim=1)  # [n, c]
+    return new_feat
 
 class Interpolation(Function):
     @staticmethod
@@ -234,5 +255,10 @@ class Interpolation(Function):
         grad_input = torch.cuda.FloatTensor(m, c).zero_()
         pointops_cuda.interpolation_backward_cuda(n, c, k, grad_output, idx, weight, grad_input)
         return None, None, grad_input, None, None, None
+
+    # need fix, use this export to onnx while raise torch._C._jit_pass_lower_all_tuples(graph)  RuntimeError: Couldn't lower all tuples.
+    @staticmethod
+    def symbolic(g,  xyz, new_xyz, input, offset, new_offset, k=3):
+        return g.op("Interpolation", xyz, new_xyz, input, offset, new_offset, k_i = k)
 
 interpolation2 = Interpolation.apply
