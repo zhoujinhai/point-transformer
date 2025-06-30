@@ -1,3 +1,4 @@
+import os
 import time
 import random
 import numpy as np
@@ -16,9 +17,12 @@ import torch.utils.data
 import sys 
 sys.path.append("/home/heygears/jinhai_zhou/learn/point-transformer/")
 
-from util import config
+from util import config 
 from util.common_util import AverageMeter, intersectionAndUnion, check_makedirs
 from util.voxelize import voxelize
+import onnxruntime as ort
+from onnxruntime_extensions import PyOp, onnx_op, get_library_path
+import pointops_cuda
 
 random.seed(123)
 np.random.seed(123)
@@ -104,11 +108,11 @@ def data_load(data_name, f_cols):
     # print(data.shape)
     data = data[data[:, 5] < 0]  # remove nz > 0
     # print("---", data.shape)
-    np.random.shuffle(data)
+    # np.random.shuffle(data)
     ori_neg_data = data[:, :3]
 
     point_set = data[:, 0:f_cols]
- 
+    # np.savetxt("./feats.txt", point_set)
     coord = pc_normalize(point_set[:, 0:3]) 
     feat  = pc_normalize(point_set[:, 3:f_cols])  
     # print("after_pc_normalize:", point_set.shape, label.shape)
@@ -155,26 +159,28 @@ def export(model):
     model.eval()
      
     # test
+    file_path = "/data/support/consurmer/test/missing/stl_pt_sample_aug/1e087f16-b0ce-46bc-9b11-7038ffd13013_Y30_point.npy"
     file_path = "/data/support/0321/XX8V3_VS_SET_VSc1_Subsetup1_Maxillar_point.npy"
    
     feats, ori_normal_data, ori_neg_data = data_load(file_path, args.fea_dim)
     print(feats.shape)
+   
     feats = feats.cuda()
     with torch.no_grad():
         pred_part = model(feats)  # (n, k)
         print("pred_part: ", pred_part, pred_part.shape)
-        probs = torch.exp(pred_part)
-        print(probs.shape)
-        max_values, max_indices = torch.max(probs, dim=1)
-        print(max_values, max_values.shape, max_indices, max_indices.shape)
-        pred_labels = max_indices.cpu().numpy()
-        # nms_3d_point_cloud(ori_normal_neg_data[:, :3], labels, max_values[0].cpu().numpy())
-        show_data = np.c_[ori_neg_data, pred_labels]
-        print(show_data.shape, ori_normal_data.shape)
-        show_data = np.vstack((show_data, ori_normal_data))
-        print(show_data, show_data.shape)
-        # show_pcl_data(show_data)
-    
+        # probs = torch.exp(pred_part)
+        # print(probs.shape)
+        # max_values, max_indices = torch.max(probs, dim=1)
+        # print(max_values, max_values.shape, max_indices, max_indices.shape)
+        # pred_labels = max_indices.cpu().numpy()
+        # # nms_3d_point_cloud(ori_normal_neg_data[:, :3], labels, max_values[0].cpu().numpy())
+        # show_data = np.c_[ori_neg_data, pred_labels]
+        # print(show_data.shape, ori_normal_data.shape)
+        # show_data = np.vstack((show_data, ori_normal_data))
+        # print(show_data, show_data.shape)
+        # # show_pcl_data(show_data)
+    # exit()
     # export
     onnx_path = "./support.onnx"
     print("start convert model to onnx >>>")
@@ -196,7 +202,135 @@ def export(model):
     
     print("onnx model has exported!")
 
+@onnx_op(
+        op_type="FurthestSampling",                                     # 必须与 symbolic 中的 OpName 一致
+        domain="ai.onnx.contrib",                                      # 必须与 symbolic 中的 domain 一致
+        inputs=[PyOp.dt_float, PyOp.dt_int32, PyOp.dt_int32],           # 输入类型
+        outputs=[PyOp.dt_int32],                                        # 输出类型
+        since_version=12 
+    )
+def FurthestSampling(xyz, offset, new_offset):
+        """
+        input: xyz: (n, 3), offset: (b), new_offset: (b)
+        output: idx: (m)
+        """
+        print("[DEBUG] PyOp called! Output shape:", xyz.shape)
+        xyz = torch.from_numpy(xyz).cuda()
+        offset = torch.from_numpy(offset).cuda()
+        new_offset = torch.from_numpy(new_offset).cuda()
+        assert xyz.is_contiguous()
+        n, b, n_max = xyz.shape[0], offset.shape[0], offset[0]
+        for i in range(1, b):
+            n_max = max(offset[i] - offset[i-1], n_max)
+        idx = torch.cuda.IntTensor(new_offset[b-1].item()).zero_()
+        
+        n_int = n.item() if isinstance(n, torch.Tensor) else n  # 确保 n 为标量
+        tmp = torch.full((n_int,), 1e10, dtype=torch.float32, device='cuda')
+        
+        pointops_cuda.furthestsampling_cuda(b, n_max, xyz, offset, new_offset, tmp, idx)
+        del tmp
+        # idx = np.random.choice(xyz.shape[0], new_offset[-1], replace=False).astype(np.int32)
+        return idx
 
+
+# @onnx_op(
+#         op_type="FurthestSampling",                                     # 必须与 symbolic 中的 OpName 一致
+#         domain="ai.onnx.contrib",                                      # 必须与 symbolic 中的 domain 一致
+#         inputs=[PyOp.dt_float, PyOp.dt_int32, PyOp.dt_int32],           # 输入类型
+#         outputs=[PyOp.dt_int32],                                        # 输出类型
+#         since_version=12 
+#     )
+# def FurthestSampling(xyz, offset, new_offset):
+#         """
+#         input: xyz: (n, 3), offset: (b), new_offset: (b)
+#         output: idx: (m)
+#         """
+#         print("[DEBUG] PyOp called! Output shape:", xyz.shape)
+#         xyz = torch.from_numpy(xyz)
+#         offset = torch.from_numpy(offset)
+#         new_offset = torch.from_numpy(new_offset)
+         
+#         torch.ops.load_library("/home/heygears/jinhai_zhou/learn/point-transformer/tool/inference_C++/libFurthestSampling.so")
+#         fps = torch.ops.my_ops.FurthestSampling 
+#         idx = fps(xyz, offset, new_offset)
+#         return idx
+
+
+@onnx_op(
+        op_type="KNNQuery",                                                                           # 必须与 symbolic 中的 OpName 一致
+        domain="ai.onnx.contrib",                                                                     # 必须与 symbolic 中的 domain 一致
+        inputs=[PyOp.dt_int32, PyOp.dt_float, PyOp.dt_float, PyOp.dt_int32, PyOp.dt_int32],           # 输入类型
+        outputs=[PyOp.dt_int32, PyOp.dt_float],                                                       # 输出类型   idx, _ = knnquery(nsample, xyz, new_xyz, offset, new_offset) # (m, nsample) _is not used! so, the out just one
+        since_version=12 
+    )
+def KNNQuery(nsample, xyz, new_xyz, offset, new_offset):
+    """
+    input: xyz: (n, 3), new_xyz: (m, 3), offset: (b), new_offset: (b)
+    output: idx: (m, nsample), dist2: (m, nsample)
+    """
+    
+    nsample = torch.from_numpy(nsample).cuda()
+    xyz = torch.from_numpy(xyz).cuda()
+    new_xyz = torch.from_numpy(new_xyz).cuda() 
+    offset = torch.from_numpy(offset).cuda()
+    new_offset = torch.from_numpy(new_offset).cuda()
+
+    if new_xyz is None: new_xyz = xyz
+    assert xyz.is_contiguous() and new_xyz.is_contiguous()
+    m = new_xyz.shape[0]
+    idx = torch.cuda.IntTensor(m, nsample).zero_()
+    dist2 = torch.cuda.FloatTensor(m, nsample).zero_()
+    pointops_cuda.knnquery_cuda(m, nsample, xyz, new_xyz, offset, new_offset, idx, dist2)
+    return idx,  torch.sqrt(dist2)
+
+
+# @onnx_op(
+#         op_type="KNNQuery",                                                                           # 必须与 symbolic 中的 OpName 一致
+#         domain="ai.onnx.contrib",                                                                     # 必须与 symbolic 中的 domain 一致
+#         inputs=[PyOp.dt_int32, PyOp.dt_float, PyOp.dt_float, PyOp.dt_int32, PyOp.dt_int32],           # 输入类型
+#         outputs=[PyOp.dt_int32],                                                                      # 输出类型   idx, _ = knnquery(nsample, xyz, new_xyz, offset, new_offset) # (m, nsample) _is not used! so, the out just one
+#         since_version=12 
+#     )
+# def KNNQuery(nsample, xyz, new_xyz, offset, new_offset):
+#     """
+#     input: xyz: (n, 3), new_xyz: (m, 3), offset: (b), new_offset: (b)
+#     output: idx: (m, nsample), dist2: (m, nsample)
+#     """
+    
+#     nsample = torch.from_numpy(nsample)
+#     xyz = torch.from_numpy(xyz)
+#     new_xyz = torch.from_numpy(new_xyz)
+#     offset = torch.from_numpy(offset)
+#     new_offset = torch.from_numpy(new_offset)
+
+#     torch.ops.load_library("/home/heygears/jinhai_zhou/learn/point-transformer/tool/inference_C++/libKNNQuery.so")
+#     knn_query = torch.ops.my_ops.KNNQuery
+#     print("nsample: ", nsample, "xyz: ", xyz.shape, "new_xyz: ", new_xyz.shape, "offset: ", offset, "new_offset: ", new_offset)
+#     idx, dist2 = knn_query(nsample, xyz, new_xyz, offset, new_offset) 
+#     print("idx: ", idx.shape)
+#     return idx, dist2
+
+def inference():   
+    
+    session_options = ort.SessionOptions() 
+    session_options.register_custom_ops_library(get_library_path()) 
+    session_options.log_severity_level = 2
+    sess = ort.InferenceSession("./support.onnx", providers=["CPUExecutionProvider"], sess_options=session_options)
+    # test
+    file_path = "/data/support/0321/XX8V3_VS_SET_VSc1_Subsetup1_Maxillar_point.npy"
+    file_path = "/data/support/consurmer/test/missing/stl_pt_sample_aug/1e087f16-b0ce-46bc-9b11-7038ffd13013_Y30_point.npy"
+    feats, ori_normal_data, ori_neg_data = data_load(file_path, 12)
+    feats = feats.numpy()
+    print(feats.shape) 
+    
+    outputs = sess.run(
+        output_names=["res"],
+        input_feed = {"inputs": feats}
+    )[0]
+
+    print("outputs: ", outputs.shape)
+    print("output data: ", outputs)  
 
 if __name__ == '__main__':
     main()
+    inference()
