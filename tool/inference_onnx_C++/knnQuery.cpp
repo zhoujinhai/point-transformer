@@ -7,7 +7,55 @@
 #include <sstream>
 
 #include "onnxruntime_cxx_api.h"
+#include <opencv2/opencv.hpp>
+#include <opencv2/flann/flann.hpp>
+#include "tbb.h"
 
+void knnquery_cpu_tbb(
+    int b,
+    int nsample,
+    const float* xyz,
+    const float* new_xyz,
+    const int* offset,
+    const int* new_offset,
+    int* idx,
+    float* dist2
+) 
+{  
+    for (int bid = 0; bid < b; ++bid) { 
+        int start_n = (bid == 0) ? 0 : offset[bid - 1];
+        int end_n = offset[bid];
+        int start_m = (bid == 0) ? 0 : new_offset[bid - 1];
+        int end_m = new_offset[bid];
+
+        cv::Mat pointCloud(end_n - start_n, 3, CV_32F, (void*)(xyz + start_n * 3));
+        cv::flann::KDTreeIndexParams indexParams(6);
+        cv::flann::Index kdtree(pointCloud, indexParams);
+        cv::flann::SearchParams params(64);
+        int total_m = end_m - start_m;
+        std::cout << "n points: " << end_n - start_n << " n knn: " << total_m << std::endl;
+        tbb::parallel_for(tbb::blocked_range<int>(0, total_m),
+            [&](const tbb::blocked_range<int>& range) {
+            for (int pt_idx = range.begin(); pt_idx < range.end(); ++pt_idx) {
+                cv::Mat query(1, 3, CV_32F);
+                query.at<float>(0) = new_xyz[pt_idx * 3];
+                query.at<float>(1) = new_xyz[pt_idx * 3 + 1];
+                query.at<float>(2) = new_xyz[pt_idx * 3 + 2];
+
+                cv::Mat indices, dists;
+                kdtree.knnSearch(query, indices, dists, nsample, params);
+
+                for (int i = 0; i < nsample; ++i) {
+                    idx[pt_idx * nsample + i] = start_n + indices.at<int>(0, i);
+                    if (dist2) {
+                        dist2[pt_idx * nsample + i] = dists.at<float>(0, i);
+                    }
+                }
+            }
+        });
+    }
+     
+}
 
 bool ReadData(const std::string filename, std::vector<std::vector<float>>& data, const int COLS_PER_ROW = 12)
 { 
