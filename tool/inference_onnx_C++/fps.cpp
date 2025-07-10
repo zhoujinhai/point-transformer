@@ -107,6 +107,8 @@ bool ReadData(const std::string filename, std::vector<std::vector<float>>& data,
 }
  
 // CPU版本最远点采样核心实现
+// optimizer: https://arxiv.org/pdf/2208.08795   https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4374573
+// https://github.com/facebookresearch/pytorch3d/blob/main/pytorch3d/csrc/sample_farthest_points/sample_farthest_points.h
 void furthestsampling_cpu_impl(
     int b,
     const float* xyz,
