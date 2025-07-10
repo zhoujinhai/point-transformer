@@ -37,13 +37,42 @@ set(OPENCV_RUNTIME_LIBRARIES
 	"${OPENCV_ROOT}/bin/opencv_world454d.dll"
 CACHE INTERNAL "")
 
+set(TBB_ROOT "F:/code/algorithm2/thirdParty/tbb")
+include_directories(${TBB_ROOT}/include/2019U6)
+
+set(TBB_LIBRARIES
+    "${TBB_ROOT}/lib/WIN64/Release/tbb.lib"
+)
+set(TBB_LIBRARIES_EX
+    "${TBB_ROOT}/lib/WIN64/Release/tbbmalloc.lib"
+    "${TBB_ROOT}/lib/WIN64/Release/tbbmalloc_proxy.lib"
+)
+set(TBB_LIBRARIES_DEBUG
+    "${TBB_ROOT}/lib/WIN64/Debug/tbb_debug.lib"
+)
+set(TBB_LIBRARIES_DEBUG_EX
+    "${TBB_ROOT}/lib/WIN64/Debug/tbbmalloc_debug.lib"
+    "${TBB_ROOT}/lib/WIN64/Debug/tbbmalloc_proxy_debug.lib"
+)
+set(TBB_RUNTIME_LIBRARIES       
+    "${TBB_ROOT}/bin/Release/tbb.dll" 
+    "${TBB_ROOT}/bin/Release/tbbmalloc.dll"
+    "${TBB_ROOT}/bin/Release/tbbmalloc_proxy.dll"
+CACHE INTERNAL "")
+set(TBB_RUNTIME_LIBRARIES_DEBUG 
+    "${TBB_ROOT}/bin/Debug/tbb_debug.dll"
+    "${TBB_ROOT}/bin/Debug/tbbmalloc_debug.dll"
+    "${TBB_ROOT}/bin/Debug/tbbmalloc_proxy_debug.dll"
+    "${TBB_ROOT}/bin/Release/tbb.dll"
+    "${TBB_ROOT}/bin/Release/tbbmalloc.dll"
+CACHE INTERNAL "")
 
 if(WIN32) 
 	add_executable(${PROJECT_NAME} support.cpp)
-	target_link_libraries(${PROJECT_NAME} ${ONNX_LIBRARIES} ${OPENCV_LIBRARIES})   # release   # debug opencv_world454d
+	target_link_libraries(${PROJECT_NAME} ${ONNX_LIBRARIES} ${OPENCV_LIBRARIES}  ${TBB_LIBRARIES})   # release   # debug opencv_world454d
 	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD   # 绑定到主目标
     COMMAND ${CMAKE_COMMAND} -E copy
-        ${ONNX_RUNTIME_LIBRARIES} ${OPENCV_RUNTIME_LIBRARIES}
+        ${ONNX_RUNTIME_LIBRARIES} ${OPENCV_RUNTIME_LIBRARIES}  ${TBB_RUNTIME_LIBRARIES} ${TBB_RUNTIME_LIBRARIES_DEBUG}
         $<TARGET_FILE_DIR:${PROJECT_NAME}>   # 自动获取可执行文件目录
     COMMENT "Copying shared library to output directory"
 )
