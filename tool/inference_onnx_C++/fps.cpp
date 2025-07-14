@@ -175,6 +175,140 @@ void furthestsampling_cpu_impl(
     }
 }
 
+// https://arxiv.org/pdf/2208.08795#page=5.38
+void afps_no_npdu(
+    int b,                         // 批次大小
+    const float* xyz,              // 输入点云 [总点数*3]
+    const int* offset,             // 批次点结束索引
+    const int* new_offset,         // 批次采样点结束索引
+    int* idx,                      // 输出采样点索引
+    int M = 32                     // AFPS扇区数
+) {
+    // 重组点云数据结构
+    std::vector<std::vector<Point>> clouds(b);
+    for (int bid = 0; bid < b; ++bid) {
+        int start_n = (bid == 0) ? 0 : offset[bid - 1];
+        int end_n = offset[bid];
+        int n = end_n - start_n;
+        clouds[bid].resize(n);
+
+        for (int i = 0; i < n; i++) {
+            int global_idx = start_n + i;
+            clouds[bid][i] = {
+                xyz[global_idx * 3 + 0],
+                xyz[global_idx * 3 + 1],
+                xyz[global_idx * 3 + 2],
+                global_idx
+            };
+        }
+    }
+
+    // 假设点云已按x轴近似排序（LiDAR数据特性）
+    for (int bid = 0; bid < b; ++bid) {
+        std::sort(clouds[bid].begin(), clouds[bid].end(),
+            [](const Point& a, const Point& b) { return a.x < b.x; });
+    }
+
+    // 处理每个批次
+#pragma omp parallel for
+    for (int bid = 0; bid < b; ++bid) {
+        int start_m = (bid == 0) ? 0 : new_offset[bid - 1];
+        int end_m = new_offset[bid];
+        int n_samples = end_m - start_m;
+        int n_points = clouds[bid].size();
+
+        // AFPS: 划分点云扇区
+        int sector_size = (n_points + M - 1) / M; // 向上取整
+        int base_samples = n_samples / M;
+        int remainder = n_samples % M;
+
+        // 存储每个扇区的采样结果
+        std::vector<int> sampled_indices;
+
+        // 处理每个扇区
+        /*tbb::parallel_for(tbb::blocked_range<int>(0, M),
+            [&](const tbb::blocked_range<int>& range) {
+                for (int m = range.begin(); m < range.end(); ++m) {*/
+                for (int m = 0; m < M; m++) {
+                    int sector_start = m * sector_size;
+                    int sector_end = std::min((m + 1) * sector_size, n_points);
+                    int sector_points = sector_end - sector_start;
+                    if (sector_points == 0) continue;
+
+                    int sector_samples = base_samples + (m < remainder ? 1 : 0);
+                    if (sector_samples == 0) continue;
+
+                    // 扇区局部数据结构
+                    std::vector<float> dists(sector_points, 1e10);
+                    std::vector<bool> selected(sector_points, false);
+
+                    // 选择起始点（扇区内第一个点）
+                    int current_idx = 0;
+                    selected[current_idx] = true;
+                    idx[start_m + sampled_indices.size()] = clouds[bid][sector_start + current_idx].idx;
+                    sampled_indices.push_back(sector_start + current_idx);
+
+                    // 初始化距离（整个扇区）
+                    for (int p = 0; p < sector_points; p++) {
+                        const Point& pt1 = clouds[bid][sector_start + current_idx];
+                        const Point& pt2 = clouds[bid][sector_start + p];
+                        float dx = pt1.x - pt2.x;
+                        float dy = pt1.y - pt2.y;
+                        float dz = pt1.z - pt2.z;
+                        dists[p] = dx * dx + dy * dy + dz * dz;
+                    }
+
+                    // 采样剩余点（无NPDU，更新整个扇区）
+                    for (int j = 1; j < sector_samples; j++) {
+                        // 查找最远点
+                        float max_dist = -1;
+                        int best_idx = -1;
+
+                        for (int p = 0; p < sector_points; p++) {
+                            if (!selected[p] && dists[p] > max_dist) {
+                                max_dist = dists[p];
+                                best_idx = p;
+                            }
+                        }
+
+                        if (best_idx == -1) {
+                            for (int p = 0; p < sector_points; p++) {
+                                if (!selected[p]) {
+                                    best_idx = p;
+                                    break;
+                                }
+                            }
+                        }
+
+                        // 保存采样点
+                        selected[best_idx] = true;
+                        dists[best_idx] = 0.0f;
+                        int global_idx = clouds[bid][sector_start + best_idx].idx;
+                        idx[start_m + sampled_indices.size()] = global_idx;
+                        sampled_indices.push_back(sector_start + best_idx);
+
+                        // 无NPDU：更新整个扇区所有点的距离
+                        for (int p = 0; p < sector_points; p++) {
+                            if (selected[p]) continue;
+
+                            const Point& pt1 = clouds[bid][sector_start + best_idx];
+                            const Point& pt2 = clouds[bid][sector_start + p];
+                            float dx = pt1.x - pt2.x;
+                            float dy = pt1.y - pt2.y;
+                            float dz = pt1.z - pt2.z;
+                            float new_dist = dx * dx + dy * dy + dz * dz;
+
+                            if (new_dist < dists[p]) {
+                                dists[p] = new_dist;
+                            }
+                        }
+                    }
+                }
+            //});
+    }
+}
+        
+
 struct FurthestSamplingKernel {
     FurthestSamplingKernel(const OrtApi& ort_api, const OrtKernelInfo* /*info*/) : ort_(ort_api) {
 	}
