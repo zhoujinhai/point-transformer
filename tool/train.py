@@ -149,17 +149,36 @@ def main_worker(gpu, ngpus_per_node, argss):
         else:
             logger.info("=> no weight found at '{}'".format(args.weight))
 
-    if args.resume:
+     if args.resume:
         if os.path.isfile(args.resume):
             if main_process():
                 logger.info("=> loading checkpoint '{}'".format(args.resume))
             checkpoint = torch.load(args.resume, map_location=lambda storage, loc: storage.cuda())
             args.start_epoch = checkpoint['epoch']
-            model.load_state_dict(checkpoint['state_dict'], strict=True)
+            # # extend class
+            # pretrained_dict = checkpoint["state_dict"]
+            # keys_to_remove = ['module.cls.3.weight', 'module.cls.3.bias']
+            # for key in keys_to_remove:
+            #    pretrained_dict.pop(key, None)
+            # model.load_state_dict(pretrained_dict, strict=False)
+            # current_params = set(model.parameters())
+     
+            # compatible_optim_state = {}
+            # for param in checkpoint['optimizer']['state']:
+            #     if param in current_params:  
+            #         compatible_optim_state[param] = checkpoint['optimizer']['state'][param]
+            
+          
+            # optimizer_state = {
+            #     'state': compatible_optim_state,
+            #     'param_groups': checkpoint['optimizer']['param_groups']  
+            # }
+            # optimizer.load_state_dict(optimizer_state) 
+            model.load_state_dict(checkpoint['state_dict'], strict=False)
             optimizer.load_state_dict(checkpoint['optimizer'])
             scheduler.load_state_dict(checkpoint['scheduler'])
-            #best_iou = 40.0
-            best_iou = checkpoint['best_iou']
+            best_iou = 0.20
+            # best_iou = checkpoint['best_iou']
             if main_process():
                 logger.info("=> loaded checkpoint '{}' (epoch {})".format(args.resume, checkpoint['epoch']))
         else:
