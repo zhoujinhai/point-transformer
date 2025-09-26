@@ -15,7 +15,7 @@ import torch.optim
 import torch.utils.data
 
 import sys 
-sys.path.append("/home/heygears/jinhai_zhou/learn/point-transformer/")
+sys.path.append("/home/jinhai_zhou/learn/point-transformer/")
 
 from util import config 
 from util.common_util import AverageMeter, intersectionAndUnion, check_makedirs
