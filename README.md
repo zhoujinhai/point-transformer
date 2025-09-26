@@ -110,5 +110,6 @@ pip install spconv-cu113
 ## Export
 ```python
 python -m tool.export_onnx
+onnxsim support_sample_aug_4.onnx support_sample_aug_4_sim.onnx
 ```
   
