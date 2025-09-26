@@ -106,4 +106,9 @@ conda install addict timm -c conda-forge -y
 conda install pytorch-scatter -c pyg -y
 pip install spconv-cu113
 ```
+
+## Export
+```python
+python -m tool.export_onnx
+```
   
