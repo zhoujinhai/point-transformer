@@ -99,6 +99,11 @@ Saving checkpoint to: exp/support/pt1_repro/model/model_last.pth
 Best validation mIoU updated to: 0.7599
 ```
 
+- view
+```bash
+tensorborad --logdir="exp/..."
+```
+
 ## V3
 - env
 ```bash
