@@ -293,7 +293,7 @@ class PointTransformerSegExport(nn.Module):
         p5, x5, o5 = self.enc5([p4, x4, o4])
         # print("o5: ", o5, self.dec5[0]([p5, x5, o5])) 
         x5 = self.dec5[1:]([p5, self.dec5[0]([p5, x5, o5]), o5])[1] 
-        x4 = self.dec4[0]([p4, x4, o4], [p5, x5, o5])
+        # x4 = self.dec4[0]([p4, x4, o4], [p5, x5, o5])
         x4 = self.dec4[1:]([p4, self.dec4[0]([p4, x4, o4], [p5, x5, o5]), o4])[1]
         x3 = self.dec3[1:]([p3, self.dec3[0]([p3, x3, o3], [p4, x4, o4]), o3])[1]
         x2 = self.dec2[1:]([p2, self.dec2[0]([p2, x2, o2], [p3, x3, o3]), o2])[1]
