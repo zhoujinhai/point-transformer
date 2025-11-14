@@ -194,7 +194,26 @@ def main_worker(gpu, ngpus_per_node, argss):
         criterion = nn.CrossEntropyLoss(weight=weights, ignore_index=args.ignore_label).cuda()
     else:
         raise NotImplementedError()
-    
+
+    if args.finetune:
+                from model.pointtransformer.pointtransformer_seg import Class5AwareLoss, StandardLossFixClass, PointTransformerSegFineTune
+                model = PointTransformerSegFineTune(model)
+                # criterion = Class5AwareLoss(
+                #             weight=torch.Tensor(train_data.label_weights).cuda(), 
+                #             ignore_index=args.ignore_label,
+                #             num_classes=model.n_cls,
+                #             fixed_class_idx=model.fixed_class_idx
+                #         )
+                criterion = StandardLossFixClass(
+                    weight=torch.Tensor(train_data.label_weights).cuda(), 
+                    ignore_index=args.ignore_label,
+                    num_classes=model.n_cls
+                )
+                if args.optimizer == "Adam": 
+                    optimizer = torch.optim.AdamW(model.get_trainable_parameters(), lr=args.base_lr, weight_decay=args.weight_decay)
+                else:
+                    optimizer = torch.optim.SGD(model.get_trainable_parameters(), lr=args.base_lr, momentum=args.momentum, weight_decay=args.weight_decay) 
+                    
     if main_process():
             logger.info("train_data samples: '{}'".format(len(train_data)))
     if args.distributed:
