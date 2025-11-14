@@ -301,6 +301,79 @@ class PointTransformerSegExport(nn.Module):
         x = self.cls(x1)
         return x
 
+class PointTransformerSegFineTune(nn.Module):  
+    def __init__(self, original_model, train_cls_only=True):
+        super().__init__()
+        self.model, self.original_model = self._unwrap_parallel_model(original_model)
+        self.n_cls = self.model.cls[-1].out_features
+        self.train_cls_only = train_cls_only
+         
+        self._validate_model_structure()
+        self._setup_training_mode()
+         
+
+    def _unwrap_parallel_model(self, model): 
+        original_model = model
+         
+        if isinstance(model, (torch.nn.DataParallel, torch.nn.parallel.DistributedDataParallel)): 
+            original_model = model.module  
+            return original_model, model
+        else: 
+            return model, model
+
+    def _validate_model_structure(self): 
+        cls_layers = list(self.model.cls)
+        assert len(cls_layers) == 4, f"cls has {len(cls_layers)} layer"
+        assert isinstance(cls_layers[-1], nn.Linear), "last layer is Linear"
+    
+    def _setup_training_mode(self):  
+        if self.train_cls_only: 
+            frozen_count = 0
+            for name, param in self.model.named_parameters():
+                if not name.startswith('cls'):
+                    param.requires_grad = False
+                    frozen_count += 1 
+            cls_trainable_count = 0
+            for name, param in self.model.named_parameters():
+                if name.startswith('cls'):
+                    param.requires_grad = True
+                    cls_trainable_count += 1 
+        else: 
+            for param in self.model.parameters():
+                param.requires_grad = True 
+    
+    def forward(self, pxo): 
+        return self.original_model(pxo)
+    
+    def get_trainable_parameters(self):  
+        return [param for param in self.model.parameters() if param.requires_grad]
+    
+    def get_cls_parameters(self): 
+        params = []
+        for name, param in self.model.named_parameters():
+            if name.startswith('cls'):
+                params.append(param)
+        return params
+    
+    def get_parameter_info(self): 
+        total_params = 0
+        trainable_params = 0
+        cls_params = 0
+        
+        for name, param in self.model.named_parameters():
+            total_params += param.numel()
+            if param.requires_grad:
+                trainable_params += param.numel()
+                if name.startswith('cls'):
+                    cls_params += param.numel()
+          
+        return {
+            'total': total_params,
+            'trainable': trainable_params,
+            'cls': cls_params
+        }
+
+
 def pointtransformer_seg_repro(**kwargs):
     model = PointTransformerSeg(PointTransformerBlock, [2, 3, 4, 6, 3], **kwargs)
     return model
