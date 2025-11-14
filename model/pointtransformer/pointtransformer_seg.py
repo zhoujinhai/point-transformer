@@ -373,6 +373,43 @@ class PointTransformerSegFineTune(nn.Module):
             'cls': cls_params
         }
 
+class StandardLossFixClass(nn.Module):  
+    def __init__(self, weight=None, ignore_index=-100, num_classes=5):
+        super().__init__()
+        self.num_classes = num_classes
+        self.ignore_index = ignore_index
+          
+        self.weight = self._process_weights(weight, num_classes)
+         
+        if self.weight is not None:
+            self.base_loss = nn.CrossEntropyLoss(weight=self.weight, ignore_index=ignore_index) 
+        else:
+            self.base_loss = nn.CrossEntropyLoss(ignore_index=ignore_index) 
+    
+    def _process_weights(self, weight, num_classes): 
+        if weight is None:
+            return None
+             
+        if isinstance(weight, (list, np.ndarray)):
+            weight = torch.tensor(weight, dtype=torch.float32)
+          
+        if len(weight) < num_classes: 
+            extended_weight = torch.ones(num_classes, dtype=weight.dtype)
+            extended_weight[:len(weight)] = weight
+            weight = extended_weight 
+        
+        return weight
+    
+    def forward(self, outputs, targets):  
+        if targets.max() >= self.num_classes:
+            invalid_count = (targets >= self.num_classes).sum().item()
+            if invalid_count > 0:  
+                targets = torch.where(targets >= self.num_classes, 
+                                    torch.tensor(self.num_classes - 1, device=targets.device), 
+                                    targets)
+          
+        return self.base_loss(outputs, targets)
+
 
 def pointtransformer_seg_repro(**kwargs):
     model = PointTransformerSeg(PointTransformerBlock, [2, 3, 4, 6, 3], **kwargs)
