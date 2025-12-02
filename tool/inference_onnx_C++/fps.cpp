@@ -308,7 +308,41 @@ void afps_no_npdu(
             //});
     }
 }
-        
+
+// https://ieeexplore.ieee.org/abstract/document/10122654
+void furthestsampling_bucket(
+	int b,
+	const float* xyz,
+	const int* offset,
+	const int* new_offset,
+	int* idx
+) {
+	for (int bid = 0; bid < b; ++bid) {
+		int start_n = (bid == 0) ? 0 : offset[bid - 1];
+		int end_n = offset[bid];
+		int n_points = end_n - start_n;
+
+		int start_m = (bid == 0) ? 0 : new_offset[bid - 1];
+		int end_m = new_offset[bid];
+		int n_samples = end_m - start_m;
+
+		std::vector<std::vector<float>> points;
+		points.reserve(n_points);
+		for (int i = start_n; i < end_n; ++i) {
+			points.emplace_back(std::initializer_list<float>{
+				xyz[i * 3],
+					xyz[i * 3 + 1],
+					xyz[i * 3 + 2]
+			});
+		}
+		std::vector<int> sampleVIds;
+		core::AITools::FPS(points, n_samples, sampleVIds);
+
+		for (int j = 0; j < n_samples; ++j) {
+			idx[start_m + j] = sampleVIds[j] + start_n;
+		}
+	}
+}
 
 struct FurthestSamplingKernel {
     FurthestSamplingKernel(const OrtApi& ort_api, const OrtKernelInfo* /*info*/) : ort_(ort_api) {
