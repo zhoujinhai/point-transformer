@@ -139,8 +139,8 @@ class GroupedVectorAttention(nn.Module):
 
     def forward(self, feat, coord, reference_index):
         query, key, value = self.linear_q(feat), self.linear_k(feat), self.linear_v(feat)
-        key = pointops.grouping(reference_index, key, coord, with_xyz=True)
-        value = pointops.grouping(reference_index, value, coord, with_xyz=False)
+        key = pointops.grouping2(reference_index, key, coord, with_xyz=True)
+        value = pointops.grouping2(reference_index, value, coord, with_xyz=False)
         pos, key = key[:, :, 0:3], key[:, :, 3:]
         relation_qk = key - query.unsqueeze(1)
         if self.pe_multiplier:
@@ -246,7 +246,7 @@ class BlockSequence(nn.Module):
         coord, feat, offset = points
         # reference index query of neighbourhood attention
         # for windows attention, modify reference index query method
-        reference_index, _ = pointops.knn_query(self.neighbours, coord, offset)
+        reference_index, _ = pointops.knnquery(self.neighbours, coord, coord, offset, offset)
         for block in self.blocks:
             points = block(points, reference_index)
         return points
@@ -458,6 +458,7 @@ class PointTransformerV2(nn.Module):
     def __init__(self,
                  in_channels,
                  num_classes,
+                 use_xyz=True,
                  patch_embed_depth=1,
                  patch_embed_channels=48,
                  patch_embed_groups=6,
@@ -549,6 +550,8 @@ class PointTransformerV2(nn.Module):
             nn.Linear(dec_channels[0], num_classes)
         ) if num_classes > 0 else nn.Identity()
 
+        self.use_xyz = use_xyz
+
     def forward(self, pxo):
         # coord = data_dict["coord"]
         # feat = data_dict["feat"]
@@ -556,6 +559,8 @@ class PointTransformerV2(nn.Module):
         
         coord, feat, offset = pxo  # (n, 3), (n, c), (b) 
         offset = offset.int()
+        if self.use_xyz:
+            feat = torch.cat([coord, feat], dim=1) 
 
         # a batch of point cloud is a list of coord, feat and offset
         points = [coord, feat, offset]
