@@ -590,3 +590,13 @@ class PointTransformerV2(nn.Module):
         coord, feat, offset = points
         seg_logits = self.seg_head(feat)
         return seg_logits
+
+
+if __name__ == "__main__":   
+    coord, feat, label =  torch.rand(50000, 3).to("cuda"), torch.rand(50000, 9).to("cuda"), torch.randint(0, 4, (50000,)).to("cuda")
+    offset = torch.tensor([10000, 50000]).to("cuda")
+    
+    model = PointTransformerV2(in_channels=12, num_classes=4)
+    model.to("cuda")
+    out = model((coord, feat, offset))
+    print(out)
