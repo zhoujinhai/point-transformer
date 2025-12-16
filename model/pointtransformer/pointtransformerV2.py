@@ -549,11 +549,31 @@ class PointTransformerV2(nn.Module):
             nn.Linear(dec_channels[0], num_classes)
         ) if num_classes > 0 else nn.Identity()
 
-    def forward(self, data_dict):
-        coord = data_dict["coord"]
-        feat = data_dict["feat"]
-        offset = data_dict["offset"].int()
+    def forward(self, pxo):
+        # coord = data_dict["coord"]
+        # feat = data_dict["feat"]
+        # offset = data_dict["offset"].int() 
+        
+        coord, feat, offset = pxo  # (n, 3), (n, c), (b) 
+        offset = offset.int()
 
+        # a batch of point cloud is a list of coord, feat and offset
+        points = [coord, feat, offset]
+        points = self.patch_embed(points)
+        skips = [[points]]
+        for i in range(self.num_stages):
+            points, cluster = self.enc_stages[i](points)
+            skips[-1].append(cluster)  # record grid cluster of pooling
+            skips.append([points])  # record points info of current stage
+
+        points = skips.pop(-1)[0]  # unpooling points info in the last enc stage
+        for i in reversed(range(self.num_stages)):
+            skip_points, cluster = skips.pop(-1)
+            points = self.dec_stages[i](points, skip_points, cluster)
+        coord, feat, offset = points
+        seg_logits = self.seg_head(feat)
+        return seg_logits
+        
         # a batch of point cloud is a list of coord, feat and offset
         points = [coord, feat, offset]
         points = self.patch_embed(points)
