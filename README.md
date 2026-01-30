@@ -17,6 +17,21 @@ The codebase is provided by the first author of [Point Transformer](https://arxi
   bash env_setup.sh pt
   ```
 
+  ```bash
+conda create -n pt python=3.7  # 创建环境并制定python版本
+
+conda activate pt  # 进入环境
+
+conda install h5py pyyaml -y
+conda install -c conda-forge sharedarray tensorboardx -y
+pip install torch==1.9.0+cu111 torchvision==0.10.0+cu111 torchaudio==0.9.0 -f https://download.pytorch.org/whl/torch_stable.html
+
+# pip list # 检查按照的库
+
+cd lib/pointops
+python3 setup.py install  # 打包C++代码
+  ```
+
 ## Dataset preparation
 - Download S3DIS [dataset](https://drive.google.com/uc?export=download&id=1KUxWagmEWnvMhEb4FRwq2Mj0aa3U3xUf) and symlink the paths to them as follows:
 
