@@ -253,6 +253,19 @@ def encode(locs, num_dims, num_bits):
     locs_uint8 = torch.stack([(locs.long() >> (i * 8)) & 0xFF for i in range(8)], dim=-1).flip(-1)
     #locs_uint8 = locs_uint8.reshape((len(locs), num_dims, 8)).flip(-1)
 
+    # # =========Ohters============## 
+    # # 确保为 int64 类型且内存连续
+    # locs_long = locs.long().contiguous() 
+    # # 通过存储（storage）共享底层内存，并创建 uint8 视图
+    # locs_uint8 = torch.tensor(locs_long.storage(), dtype=torch.uint8, device=locs_long.device)
+    # # 计算原始张量的元素个数
+    # num_elements = locs_long.numel()
+    # # 重塑：总元素数变为 num_elements * 8（因为每个 int64 变成 8 个 uint8）
+    # locs_uint8 = locs_uint8.reshape((-1, num_dims, 8))  # 确保 (num_elements * 8) == (-1 * num_dims * 8)
+    # # 翻转最后一个维度（字节顺序）
+    # locs_uint8 = locs_uint8.flip(-1)
+    # # =====================## 
+
     # Now turn these into bits and truncate to num_bits.
     gray = (
         locs_uint8.unsqueeze(-1)
