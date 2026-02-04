@@ -115,7 +115,7 @@ def encode_bak(locs, num_dims, num_bits):
     """
 
     # Keep around the original shape for later.
-    orig_shape = locs.shape 
+    orig_shape = locs.shape
     bitpack_mask = 1 << torch.arange(0, 8).to(locs.device)
     bitpack_mask_rev = bitpack_mask.flip(-1)
 
@@ -140,7 +140,7 @@ def encode_bak(locs, num_dims, num_bits):
 
     # Treat the location integers as 64-bit unsigned and then split them up into
     # a sequence of uint8s.  Preserve the association by dimension.
-    locs_uint8 = locs.long().view(torch.uint8).reshape((-1, num_dims, 8)).flip(-1) 
+    locs_uint8 = locs.long().view(torch.uint8).reshape((-1, num_dims, 8)).flip(-1)
 
     # Now turn these into bits and truncate to num_bits.
     gray = (
@@ -192,33 +192,75 @@ def encode_bak(locs, num_dims, num_bits):
         .type(torch.uint8)
     )
 
-    # Convert uint8s into uint64s. 
-    hh_uint64 = hh_uint8.view(torch.int64).squeeze() 
+    # Convert uint8s into uint64s.
+    hh_uint64 = hh_uint8.view(torch.int64).squeeze()
 
     return hh_uint64
 
 
 def encode(locs, num_dims, num_bits):
-    """Decode an array of locations in a hypercube into a Hilbert integer."""
+    """Decode an array of locations in a hypercube into a Hilbert integer.
+
+    This is a vectorized-ish version of the Hilbert curve implementation by John
+    Skilling as described in:
+
+    Skilling, J. (2004, April). Programming the Hilbert curve. In AIP Conference
+      Proceedings (Vol. 707, No. 1, pp. 381-387). American Institute of Physics.
+
+    Params:
+    -------
+     locs - An ndarray of locations in a hypercube of num_dims dimensions, in
+            which each dimension runs from 0 to 2**num_bits-1.  The shape can
+            be arbitrary, as long as the last dimension of the same has size
+            num_dims.
+
+     num_dims - The dimensionality of the hypercube. Integer.
+
+     num_bits - The number of bits for each dimension. Integer.
+
+    Returns:
+    --------
+     The output is an ndarray of uint64 integers with the same shape as the
+     input, excluding the last dimension, which needs to be num_dims.
+    """
+
+    # Keep around the original shape for later.
     orig_shape = locs.shape
-    bitpack_mask = torch.tensor(1, device=locs.device) << torch.arange(0, 8).to(locs.device)
+    bitpack_mask = torch.tensor(1) << torch.arange(0, 8).to(locs.device)
     bitpack_mask_rev = bitpack_mask.flip(-1)
 
     if orig_shape[-1] != num_dims:
-        raise ValueError(f"Expected last dimension size {num_dims}, got {orig_shape[-1]}")
+        raise ValueError(
+            """
+      The shape of locs was surprising in that the last dimension was of size
+      %d, but num_dims=%d.  These need to be equal.
+      """
+            % (orig_shape[-1], num_dims)
+        )
 
     if num_dims * num_bits > 63:
-        raise ValueError(f"Total bits {num_dims * num_bits} exceeds 63")
+        raise ValueError(
+            """
+      num_dims=%d and num_bits=%d for %d bits total, which can't be encoded
+      into a int64.  Are you sure you need that many points on your Hilbert
+      curve?
+      """
+            % (num_dims, num_bits, num_dims * num_bits)
+        )
 
+    # Treat the location integers as 64-bit unsigned and then split them up into
+    # a sequence of uint8s.  Preserve the association by dimension.
     locs_uint8 = torch.stack([(locs.long() >> (i * 8)) & 0xFF for i in range(8)], dim=-1).flip(-1)
- 
+    #locs_uint8 = locs_uint8.reshape((len(locs), num_dims, 8)).flip(-1)
+
+    # Now turn these into bits and truncate to num_bits.
     gray = (
         locs_uint8.unsqueeze(-1)
         .bitwise_and(bitpack_mask_rev)
         .ne(0)
         .byte()
         .flatten(-2, -1)[..., -num_bits:]
-    ) 
+    )
 
     # Run the decoding process the other way.
     # Iterate forwards through the bits.
@@ -247,19 +289,20 @@ def encode(locs, num_dims, num_bits):
     gray = gray.swapaxes(1, 2).reshape((-1, num_bits * num_dims))
 
     # Convert Gray back to binary.
-    hh_bin = gray2binary(gray) 
-    
+    hh_bin = gray2binary(gray)
+
     # Pad back out to 64 bits.
     extra_dims = 64 - num_bits * num_dims
     padded = torch.nn.functional.pad(hh_bin, (extra_dims, 0), "constant", 0)
 
+    # Convert binary values into uint8s.
     hh_uint8 = (
-        (padded.flip(-1).reshape(-1, 8, 8) * bitpack_mask)
+        (padded.flip(-1).reshape((-1, 8, 8)) * bitpack_mask)
         .sum(2)
         .squeeze()
         .type(torch.uint8)
     )
-    
+
     # Convert uint8s into uint64s.
     # print((hex(hh_uint8[0][0])),hex(hh_uint8[0][1]),hex(hh_uint8[0][2]),hex(hh_uint8[0][3]),hex(hh_uint8[0][4]),hex(hh_uint8[0][5]),hex(hh_uint8[0][6]),hex(hh_uint8[0][7]))
     shifts = torch.arange(0, 64, 8, device=hh_uint8.device, dtype=torch.int64)
