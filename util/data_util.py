@@ -22,7 +22,47 @@ def collate_fn(batch):
         offset.append(count)
     return torch.cat(coord), torch.cat(feat), torch.cat(label), torch.IntTensor(offset)
 
-
+def collate_fn_cls(batch):
+    """
+    分类任务的collate函数
+    batch: 列表，每个元素是 (coord, feat, label) 元组
+    返回: coords, feats, labels, offsets
+    """
+    # 解压batch
+    coords, feats, labels = list(zip(*batch)) 
+    
+    # 计算offset（每个样本的点数偏移量）
+    offset, count = [], 0
+    for item in coords:
+        count += item.shape[0]
+        offset.append(count)
+    
+    # 拼接坐标和特征
+    coords_tensor = torch.cat(coords)
+    feats_tensor = torch.cat(feats)
+    
+    labels_list = []
+    for lbl in labels:
+        if torch.is_tensor(lbl):
+            # 检查是否为空张量
+            if lbl.numel() == 0:
+                # 空张量，假设类别为0
+                labels_list.append(0)
+            else:
+                # 非空张量，转换为标量
+                labels_list.append(lbl.item())
+        else:
+            # 非张量，直接使用
+            labels_list.append(lbl)
+    
+    # 创建标签张量
+    labels_tensor = torch.tensor(labels_list, dtype=torch.long)
+    
+    # offset转换为张量
+    offset_tensor = torch.IntTensor(offset)
+    # print(coords_tensor, labels_tensor, offset_tensor)
+    return coords_tensor, feats_tensor, labels_tensor, offset_tensor
+    
 def data_prepare(coord, feat, label, split='train', voxel_size=0.04, voxel_max=None, transform=None, shuffle_index=False):
     if transform:
         coord, feat, label = transform(coord, feat, label)
