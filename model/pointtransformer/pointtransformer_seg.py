@@ -411,10 +411,67 @@ class StandardLossFixClass(nn.Module):
         return self.base_loss(outputs, targets)
 
 
+class PointTransformerCls(nn.Module):
+    def __init__(self, block, blocks, in_channels=6, n_cls=13):
+        super().__init__()
+        self.c = in_channels
+        self.in_planes, planes = in_channels, [32, 64, 128, 256, 512]
+        fpn_planes, fpnhead_planes, share_planes = 128, 64, 8
+        stride, nsample = [1, 4, 4, 4, 4], [8, 16, 16, 16, 16]
+        self.enc1 = self._make_enc(block, planes[0], blocks[0], share_planes, stride=stride[0], nsample=nsample[0])  # N/1
+        self.enc2 = self._make_enc(block, planes[1], blocks[1], share_planes, stride=stride[1], nsample=nsample[1])  # N/4
+        self.enc3 = self._make_enc(block, planes[2], blocks[2], share_planes, stride=stride[2], nsample=nsample[2])  # N/16
+        self.enc4 = self._make_enc(block, planes[3], blocks[3], share_planes, stride=stride[3], nsample=nsample[3])  # N/64
+        self.enc5 = self._make_enc(block, planes[4], blocks[4], share_planes, stride=stride[4], nsample=nsample[4])  # N/256
+        self.fc = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 64),
+            nn.ReLU(),
+            nn.Linear(64, n_cls)
+        )
+         
+
+    def _make_enc(self, block, planes, blocks, share_planes=8, stride=1, nsample=16):
+        layers = []
+        layers.append(TransitionDown(self.in_planes, planes * block.expansion, stride, nsample))
+        self.in_planes = planes * block.expansion
+        for _ in range(1, blocks):
+            layers.append(block(self.in_planes, self.in_planes, share_planes, nsample=nsample))
+        return nn.Sequential(*layers) 
+
+    def forward(self, pxo):
+        p0, x0, o0 = pxo  # (n, 3), (n, c), (b) 
+        x0 = p0 if self.c == 3 else torch.cat((p0, x0), 1)
+        p1, x1, o1 = self.enc1([p0, x0, o0]) 
+
+        p2, x2, o2 = self.enc2([p1, x1, o1])
+        p3, x3, o3 = self.enc3([p2, x2, o2])
+        p4, x4, o4 = self.enc4([p3, x3, o3])
+        p5, x5, o5 = self.enc5([p4, x4, o4]) 
+        batch_size = o5.shape[0]
+        features = []
+        start_idx = 0
+        for i in range(batch_size):
+            end_idx = o5[i]
+            sample_features = x5[start_idx:end_idx]  # [num_points_i, feature_dim]
+            sample_mean = sample_features.mean(dim=0)  # [feature_dim]
+            features.append(sample_mean)
+            start_idx = end_idx
+        
+        features = torch.stack(features, dim=0)  # [batch_size, feature_dim]
+        x = self.fc(features)  # [batch_size, n_cls]
+        return x
+        
+    
 def pointtransformer_seg_repro(**kwargs):
     model = PointTransformerSeg(PointTransformerBlock, [2, 3, 4, 6, 3], **kwargs)
     return model
 
 def pointtransformer_seg_repro_export(**kwargs):
     model = PointTransformerSegExport(PointTransformerBlock, [2, 3, 4, 6, 3], **kwargs)
+    return model
+
+def pointtransformer_cls_small_repro(**kwargs):
+    model = PointTransformerCls(PointTransformerBlock, [2, 2, 2, 2, 2], **kwargs)
     return model
