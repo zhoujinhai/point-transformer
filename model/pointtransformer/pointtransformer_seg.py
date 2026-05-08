@@ -462,7 +462,87 @@ class PointTransformerCls(nn.Module):
         features = torch.stack(features, dim=0)  # [batch_size, feature_dim]
         x = self.fc(features)  # [batch_size, n_cls]
         return x
+
+class PointTransformerClsExport(nn.Module):
+    def __init__(self, block, blocks, in_channels=6, n_cls=13):
+        super().__init__()
+        self.c = in_channels
+        self.in_planes, planes = in_channels, [32, 64, 128, 256, 512]
+        fpn_planes, fpnhead_planes, share_planes = 128, 64, 8
+        stride, nsample = [1, 4, 4, 4, 4], [8, 16, 16, 16, 16]
+        self.enc1 = self._make_enc(block, planes[0], blocks[0], share_planes, stride=stride[0], nsample=nsample[0])  # N/1
+        self.enc2 = self._make_enc(block, planes[1], blocks[1], share_planes, stride=stride[1], nsample=nsample[1])  # N/4
+        self.enc3 = self._make_enc(block, planes[2], blocks[2], share_planes, stride=stride[2], nsample=nsample[2])  # N/16
+        self.enc4 = self._make_enc(block, planes[3], blocks[3], share_planes, stride=stride[3], nsample=nsample[3])  # N/64
+        self.enc5 = self._make_enc(block, planes[4], blocks[4], share_planes, stride=stride[4], nsample=nsample[4])  # N/256
         
+        self.fc = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 64),
+            nn.ReLU(),
+            nn.Linear(64, n_cls)
+        )
+
+    def _make_enc(self, block, planes, blocks, share_planes=8, stride=1, nsample=16):
+        layers = []
+        layers.append(TransitionDownExport(self.in_planes, planes * block.expansion, stride, nsample))
+        self.in_planes = planes * block.expansion
+        for _ in range(1, blocks):
+            layers.append(block(self.in_planes, self.in_planes, share_planes, nsample=nsample))
+        return nn.Sequential(*layers)
+ 
+
+    def forward(self, feats):
+        p0 = feats[:, :3]
+        x0 = feats[:, 3:]
+        p0 = p0.contiguous()
+        x0 = x0.contiguous()
+        # o0 = torch.IntTensor([feats.shape[0]]).to(p0.device)  # (n, 3), (n, c), (b)
+        o0 = torch._shape_as_tensor(feats)[0].reshape(1).to(p0.device).to(torch.int32)   # for export onnx
+        # print("p0", p0.shape, p0[0], x0.shape, x0[0], o0, o0.shape)
+        x0 = p0 if self.c == 3 else torch.cat((p0, x0), 1)
+        p1, x1, o1 = self.enc1([p0, x0, o0])  
+        p2, x2, o2 = self.enc2([p1, x1, o1])
+        p3, x3, o3 = self.enc3([p2, x2, o2])
+        p4, x4, o4 = self.enc4([p3, x3, o3])
+        p5, x5, o5 = self.enc5([p4, x4, o4]) 
+        
+        o5 = o5.to(torch.int32)
+    
+        batch_size = o5.shape[0]
+        features = []
+        
+        batch_size = o5.shape[0]
+        total_points = x5.shape[0]
+        
+        # 创建批索引
+        batch_indices = torch.zeros(total_points, dtype=torch.int64, device=x5.device)
+        cumsum = 0
+        for i in range(batch_size):
+            num_points = int(o5[i].item())  # 转换为 Python int
+            batch_indices[cumsum:cumsum + num_points] = i
+            cumsum += num_points
+        
+        # 使用 scatter_add 计算每个批次的特征和
+        feature_dim = x5.shape[1]
+        sum_features = torch.zeros(batch_size, feature_dim, device=x5.device)
+        
+        # 注意：scatter_add 要求索引为 int64，但这是内部操作，不影响 ONNX 导出
+        sum_features.scatter_add_(0, batch_indices.unsqueeze(1).expand(-1, feature_dim), x5)
+        
+        # 计算每个批次的点数（转换为 float 进行除法）
+        counts = o5.unsqueeze(1).float()
+        
+        # 计算均值
+        features = sum_features / counts
+        x = self.fc(features)
+        return x
+
+def pointtransformer_cls_small_repro_export(**kwargs):
+    model = PointTransformerClsExport(PointTransformerBlock, [2, 2, 2, 2, 2], **kwargs)
+    return model
+
     
 def pointtransformer_seg_repro(**kwargs):
     model = PointTransformerSeg(PointTransformerBlock, [2, 3, 4, 6, 3], **kwargs)
